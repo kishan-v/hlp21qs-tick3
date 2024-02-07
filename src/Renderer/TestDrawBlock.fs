@@ -192,6 +192,31 @@ module HLPTick3 =
                 |> Optic.set symbolModel_ symModel
                 |> SheetUpdate.updateBoundingBoxes // could optimise this by only updating symId bounding boxes
                 |> Ok
+        
+        let placeRotatedSymbol
+            (symLabel: string)
+            (compType: ComponentType)
+            (position: XYPos)
+            (model: SheetT.Model)
+            : Result<SheetT.Model, string>
+            =
+            let symLabel = String.toUpper symLabel // make label into its standard casing
+            let rotation = GenerateData.shuffleA [|Degree0; Degree90; Degree180; Degree270|]
+            let symModel, symId =
+                SymbolUpdate.addSymbol [] (model.Wire.Symbol) position compType symLabel
+            // let rotSymModel = RotateScale.rotateBlock [symId] symModel rotation[0]
+            let rotSymbol symToRot = RotateScale.rotateSymbolInBlock rotation[0] ((RotateScale.getBlock [symToRot]).Centre())  symToRot
+            let rotSymModel = SymbolUpdate.updateSymbol rotSymbol symId symModel
+            let rotSym = rotSymModel.Symbols[symId]
+            match position + rotSym.getScaledDiagonal with
+            | { X = x; Y = y } when x > maxSheetCoord || y > maxSheetCoord ->
+                Error
+                    $"symbol '{symLabel}' position {position + rotSym.getScaledDiagonal} and rotation {rotation} lies outside allowed coordinates"
+            | _ ->
+                model
+                |> Optic.set symbolModel_ rotSymModel
+                |> SheetUpdate.updateBoundingBoxes // could optimise this by only updating symId bounding boxes
+                |> Ok
 
         /// Place a new symbol onto the Sheet with given position and scaling (use default scale if this is not specified).
         /// The ports on the new symbol will be determined by the input and output components on some existing sheet in project.
@@ -237,6 +262,7 @@ module HLPTick3 =
         // Flip a symbol
         let flipSymbol (symLabel: string) (flip: SymbolT.FlipType) (model: SheetT.Model) : (SheetT.Model) =
             failwithf "Not Implemented"
+
 
         /// Add a (newly routed) wire, source specifies the Output port, target the Input port.
         /// Return an error if either of the two ports specified is invalid, or if the wire duplicates and existing one.
@@ -339,11 +365,23 @@ module HLPTick3 =
         (fromList [ -100..10..100 ], fromList [ -100..10..100 ])
         ||> GenerateData.product (fun a b -> middleOfSheet + { X = float a; Y = float b })
 
+    let randomRotations: Gen<Rotation> =
+        fromList [Degree0;Degree90;Degree180;Degree270]
+
     /// demo test circuit consisting of a DFF & And gate
     let makeTest1Circuit (andPos: XYPos) =
         initSheetModel
         |> placeSymbol "G1" (GateN(And, 2)) andPos
         |> Result.bind (placeSymbol "FF1" DFF middleOfSheet)
+        |> Result.bind (placeWire (portOf "G1" 0) (portOf "FF1" 0))
+        |> Result.bind (placeWire (portOf "FF1" 0) (portOf "G1" 0))
+        |> getOkOrFail
+    
+    // Test circuit consisting of a DFF & And gate, used with [random?] rotating and flipping of components
+    let makeTest6Circuit (andPos: XYPos) =
+        initSheetModel
+        |> placeRotatedSymbol "G1" (GateN(And, 2)) andPos
+        |> Result.bind (placeRotatedSymbol "FF1" DFF middleOfSheet)
         |> Result.bind (placeWire (portOf "G1" 0) (portOf "FF1" 0))
         |> Result.bind (placeWire (portOf "FF1" 0) (portOf "G1" 0))
         |> getOkOrFail
@@ -357,7 +395,8 @@ module HLPTick3 =
                 |> List.mapi (fun n box -> n, box)
             List.allPairs boxes boxes
             |> List.exists (fun ((n1, box1), (n2, box2)) -> (n1 <> n2) && BlockHelpers.overlap2DBox box1 box2) // Returns true if a symbol intersects another symbol outline in Sample
-        allPos |> GenerateData.filter (fun pos -> (isSymbolIntersectSymbol (makeTest1Circuit pos)) = false)
+        allPos
+        |> GenerateData.filter (fun pos -> (isSymbolIntersectSymbol (makeTest1Circuit pos)) = false)
 
     //------------------------------------------------------------------------------------------------//
     //-------------------------Example assertions used to test sheets---------------------------------//
@@ -477,6 +516,17 @@ module HLPTick3 =
                 dispatch
             |> recordPositionInTest testNum dispatch
 
+        // Test added for HLP Tick 3 Task 10: 2D space AND + DFF with rotate and flip: fail on Wire overlap Symbol
+        let test6 testNum firstSample dispatch =
+            runTestOnSheets
+                "2D space AND + DFF with rotate and flip: fail on Wire overlap Symbol"
+                firstSample
+                (noOverlapRectAreaPositions rectangularAreaPositions)
+                makeTest6Circuit
+                (Asserts.failOnWireIntersectsSymbol)
+                dispatch
+            |> recordPositionInTest testNum dispatch
+
         /// List of tests available which can be run ftom Issie File Menu.
         /// The first 9 tests can also be run via Ctrl-n accelerator keys as shown on menu
         let testsToRunFromSheetMenu: (string * (int -> int -> Dispatch<Msg> -> Unit)) list =
@@ -487,8 +537,7 @@ module HLPTick3 =
               "Test3", test3 // example
               "Test4", test4
               "Test5", test5
-              //   fun _ _ _ -> printf "Test5" // dummy test - delete line or replace by real test as needed
-              "Test6", (fun _ _ _ -> printf "Test6")
+              "Test6", test6
               "Test7", (fun _ _ _ -> printf "Test7")
               "Test8", (fun _ _ _ -> printf "Test8")
               "Next Test Error", (fun _ _ _ -> printf "Next Error:") ] // Go to the nexterror in a test
