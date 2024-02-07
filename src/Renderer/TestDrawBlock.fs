@@ -193,28 +193,32 @@ module HLPTick3 =
                 |> SheetUpdate.updateBoundingBoxes // could optimise this by only updating symId bounding boxes
                 |> Ok
         
-        let placeRotatedSymbol
+        let placeRotatedAndFlippedSymbol
             (symLabel: string)
             (compType: ComponentType)
             (position: XYPos)
             (model: SheetT.Model)
             : Result<SheetT.Model, string>
             =
-            let symLabel = String.toUpper symLabel // make label into its standard casing
             let rotation = GenerateData.shuffleA [|Degree0; Degree90; Degree180; Degree270|]
+            let flip = GenerateData.shuffleA [|SymbolT.FlipHorizontal; SymbolT.FlipVertical|]
+            let symLabel = String.toUpper symLabel // make label into its standard casing
             let symModel, symId =
                 SymbolUpdate.addSymbol [] (model.Wire.Symbol) position compType symLabel
             // let rotSymModel = RotateScale.rotateBlock [symId] symModel rotation[0]
-            let rotSymbol symToRot = RotateScale.rotateSymbolInBlock rotation[0] ((RotateScale.getBlock [symToRot]).Centre())  symToRot
+            let rotSymbol symToRot = RotateScale.rotateSymbolInBlock rotation[0] ((RotateScale.getBlock [symToRot]).Centre()) symToRot
             let rotSymModel = SymbolUpdate.updateSymbol rotSymbol symId symModel
             let rotSym = rotSymModel.Symbols[symId]
-            match position + rotSym.getScaledDiagonal with
+            let flipSymbol symToFlip = RotateScale.flipSymbolInBlock flip[0] ((RotateScale.getBlock [symToFlip]).Centre()) symToFlip
+            let flipSymModel = SymbolUpdate.updateSymbol flipSymbol symId rotSymModel
+            let flipSym = flipSymModel.Symbols[symId]
+            match position + flipSym.getScaledDiagonal with
             | { X = x; Y = y } when x > maxSheetCoord || y > maxSheetCoord ->
                 Error
-                    $"symbol '{symLabel}' position {position + rotSym.getScaledDiagonal} and rotation {rotation} lies outside allowed coordinates"
+                    $"symbol '{symLabel}' position {position + flipSym.getScaledDiagonal} and rotation {rotation} lies outside allowed coordinates"
             | _ ->
                 model
-                |> Optic.set symbolModel_ rotSymModel
+                |> Optic.set symbolModel_ flipSymModel
                 |> SheetUpdate.updateBoundingBoxes // could optimise this by only updating symId bounding boxes
                 |> Ok
 
@@ -362,7 +366,7 @@ module HLPTick3 =
         |> map (fun n -> middleOfSheet + { X = float n; Y = 0. })
 
     let rectangularAreaPositions: Gen<XYPos> =
-        (fromList [ -100..10..100 ], fromList [ -100..10..100 ])
+        (fromList [ -100..40..100 ], fromList [ -100..40..100 ])
         ||> GenerateData.product (fun a b -> middleOfSheet + { X = float a; Y = float b })
 
     let randomRotations: Gen<Rotation> =
@@ -380,8 +384,8 @@ module HLPTick3 =
     // Test circuit consisting of a DFF & And gate, used with [random?] rotating and flipping of components
     let makeTest6Circuit (andPos: XYPos) =
         initSheetModel
-        |> placeRotatedSymbol "G1" (GateN(And, 2)) andPos
-        |> Result.bind (placeRotatedSymbol "FF1" DFF middleOfSheet)
+        |> placeRotatedAndFlippedSymbol "G1" (GateN(And, 2)) andPos
+        |> Result.bind (placeRotatedAndFlippedSymbol "FF1" DFF middleOfSheet)
         |> Result.bind (placeWire (portOf "G1" 0) (portOf "FF1" 0))
         |> Result.bind (placeWire (portOf "FF1" 0) (portOf "G1" 0))
         |> getOkOrFail
