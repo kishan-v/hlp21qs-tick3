@@ -335,7 +335,7 @@ module HLPTick3 =
         fromList [ -100..20..100 ]
         |> map (fun n -> middleOfSheet + { X = float n; Y = 0. })
 
-    let rectanglarAreaPositions: Gen<XYPos> =
+    let rectangularAreaPositions: Gen<XYPos> =
         (fromList [ -100..10..100 ], fromList [ -100..10..100 ])
         ||> GenerateData.product (fun a b -> middleOfSheet + { X = float a; Y = float b })
 
@@ -347,6 +347,17 @@ module HLPTick3 =
         |> Result.bind (placeWire (portOf "G1" 0) (portOf "FF1" 0))
         |> Result.bind (placeWire (portOf "FF1" 0) (portOf "G1" 0))
         |> getOkOrFail
+
+    // Takes a Gen<XYPos> and filters out any positions where the two symbols might overlap
+    let noOverlapRectAreaPositions (allPos: Gen<XYPos>) =
+        let isSymbolIntersectSymbol (sheet: SheetT.Model) = // Adapted from Asserts.failOnSymbolIntersectsSymbol
+            let boxes =
+                mapValues sheet.BoundingBoxes
+                |> Array.toList
+                |> List.mapi (fun n box -> n, box)
+            List.allPairs boxes boxes
+            |> List.exists (fun ((n1, box1), (n2, box2)) -> (n1 <> n2) && BlockHelpers.overlap2DBox box1 box2) // Returns true if a symbol intersects another symbol outline in Sample
+        allPos |> GenerateData.filter (fun pos -> (isSymbolIntersectSymbol (makeTest1Circuit pos)) = false)
 
     //------------------------------------------------------------------------------------------------//
     //-------------------------Example assertions used to test sheets---------------------------------//
@@ -455,17 +466,14 @@ module HLPTick3 =
                 dispatch
             |> recordPositionInTest testNum dispatch
 
+        // Test added for HLP Tick 3 Task 7: 2D space converging AND + DFF: fail on wire segment overlaps a symbol
         let test5 testNum firstSample dispatch =
-            let noOverlapRectAreaPositions =
-                GenerateData.filter
-                    (fun pos -> (Asserts.failOnSymbolIntersectsSymbol 0 (makeTest1Circuit pos)) = None)
-                    rectanglarAreaPositions // Possible XYPos's for 'And' component
             runTestOnSheets
                 "2D space converging AND + DFF: fail on wire segment overlaps a symbol"
                 firstSample
-                noOverlapRectAreaPositions
+                (noOverlapRectAreaPositions rectangularAreaPositions)
                 makeTest1Circuit
-                (Asserts.failOnWireIntersectsSymbol) // TODO: Change back to failOnWireOverlap!
+                (Asserts.failOnWireIntersectsSymbol)
                 dispatch
             |> recordPositionInTest testNum dispatch
 
@@ -483,10 +491,7 @@ module HLPTick3 =
               "Test6", (fun _ _ _ -> printf "Test6")
               "Test7", (fun _ _ _ -> printf "Test7")
               "Test8", (fun _ _ _ -> printf "Test8")
-              "Next Test Error",
-              fun _ _ _ -> printf "Next Error:" // Go to the nexterror in a test
-
-              ]
+              "Next Test Error", (fun _ _ _ -> printf "Next Error:") ] // Go to the nexterror in a test
 
         /// Display the next error in a previously started test
         let nextError (testName, testFunc) firstSampleToTest dispatch =
