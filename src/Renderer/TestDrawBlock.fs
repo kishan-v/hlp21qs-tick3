@@ -261,11 +261,11 @@ module HLPTick3 =
 
         // Rotate a symbol
         let rotateSymbol (symLabel: string) (rotate: Rotation) (model: SheetT.Model) : (SheetT.Model) =
-            failwithf "Not Implemented"
+            failwithf "Not Implemented. Using RotateScale functions directly instead"
 
         // Flip a symbol
         let flipSymbol (symLabel: string) (flip: SymbolT.FlipType) (model: SheetT.Model) : (SheetT.Model) =
-            failwithf "Not Implemented"
+            failwithf "Not Implemented. Using RotateScale functions directly instead"
 
 
         /// Add a (newly routed) wire, source specifies the Output port, target the Input port.
@@ -352,7 +352,9 @@ module HLPTick3 =
             | (n, first) :: _ -> // display in Issie editor and print out first error
                 printf $"Test {result.TestName} has FAILED on sample {n} with error message:\n{first}"
                 match catchException "" sheetMaker (samples.Data n) with
-                | Ok sheet -> showSheetInIssieSchematic sheet dispatch
+                | Ok sheet -> 
+                    // let newModel = (separateAllWires sheet) 
+                    showSheetInIssieSchematic sheet dispatch
                 | Error mess -> ()
             result
     //--------------------------------------------------------------------------------------------------//
